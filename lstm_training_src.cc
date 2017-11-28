@@ -489,6 +489,7 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     mkl_free(A);
     mkl_free(B);
     mkl_free(C);
+    mkl_free(x_temp); 
 }
 #ifdef __cplusplus
 }
