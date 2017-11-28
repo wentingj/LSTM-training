@@ -10,6 +10,7 @@
 #include <cstddef>
 extern "C" {
 #endif
+#define max(a,b) ((a) > (b) ? (a) : (b))
 
 void  LSTM_batch_gemm(int batch_size, int time_step, int input_dim, int hid, 
                       const float* w_x, const float* w_h, const float* b, const float* x, const float* h_0, const float* c_0, 
@@ -236,6 +237,11 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     //from last timestep
     float *dh = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
     float *dc = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64);
+    
+    int max_size = max(batch_size, input_dim);
+    max_size = max(max_size, hid);
+    float *x_temp = (float*)mkl_malloc(4 * time_step * hid * max_size * sizeof (float), 64); 
+    
     float *dh_next = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
     float *dc_next = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64);
     memset(dh_next, 0, sizeof(float) * hid * batch_size);
@@ -251,15 +257,6 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     float *dhhc = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
     float *dhho = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
     
-    float *dwfx_allt = (float*)mkl_malloc(time_step * hid * input_dim * sizeof (float), 64);
-    float *dwix_allt = (float*)mkl_malloc(time_step * hid * input_dim * sizeof (float), 64);
-    float *dwcx_allt = (float*)mkl_malloc(time_step * hid * input_dim * sizeof (float), 64);
-    float *dwox_allt = (float*)mkl_malloc(time_step * hid * input_dim * sizeof (float), 64);
-    float *dwfh_allt = (float*)mkl_malloc(time_step * hid * hid * sizeof (float), 64);
-    float *dwih_allt = (float*)mkl_malloc(time_step * hid * hid * sizeof (float), 64);
-    float *dwch_allt = (float*)mkl_malloc(time_step * hid * hid * sizeof (float), 64);
-    float *dwoh_allt = (float*)mkl_malloc(time_step * hid * hid * sizeof (float), 64);
-
     float *dxf = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
     float *dxi = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
     float *dxc = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
@@ -382,19 +379,31 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
         B[i + 2 * time_step] = B[i]; 
         B[i + 3 * time_step] = B[i]; 
     
-        C[i] = dwfx_allt + i * hid * input_dim;
-        C[i + time_step] = dwix_allt + i * hid * input_dim; 
-        C[i + 2 * time_step] = dwcx_allt + i * hid * input_dim; 
-        C[i + 3 * time_step] = dwox_allt + i * hid * input_dim; 
+        C[i] = x_temp + i * hid * input_dim;
+        C[i + time_step] = x_temp + (i + time_step) * hid * input_dim; 
+        C[i + 2 * time_step] = x_temp + (i + 2 * time_step) * hid * input_dim; 
+        C[i + 3 * time_step] = x_temp + (i + 3 * time_step) * hid * input_dim; 
     }
     cblas_sgemm_batch(CblasRowMajor, transA, transB, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, 1, size_per_grp);
     for(i = 0; i < hid * input_dim; i++) {
         for(j = 0; j < time_step; j++) {
             int index = j * hid * input_dim + i;
-            dwfx[i] += dwfx_allt[index];
-            dwix[i] += dwix_allt[index];
-            dwcx[i] += dwcx_allt[index];
-            dwox[i] += dwox_allt[index];
+            //dwfx[i] += dwfx_allt[index];
+            //dwix[i] += dwix_allt[index];
+            //dwcx[i] += dwcx_allt[index];
+            //dwox[i] += dwox_allt[index];
+            dwfx[i] += C[j][i];
+            dwix[i] += C[j + time_step][i];
+            dwcx[i] += C[j + 2 * time_step][i];
+            dwox[i] += C[j + 3 * time_step][i];
+            //printf("%f, %f\n", dwfx_allt[index], C[j][i]);
+            //printf("%f, %f\n", dwix_allt[index], C[j + time_step][i]);
+            //printf("%f, %f\n", dwcx_allt[index], C[j + 2 * time_step][i]);
+            //printf("%f, %f\n", dwox_allt[index], C[j + 3 * time_step][i]);
+            //printf("%f\n", C[j][i]);
+            //printf("%f\n", C[j + time_step][i]);
+            //printf("%f\n", C[j + 2 * time_step][i]);
+            //printf("%f\n", C[j + 3 * time_step][i]);
         }
     }
     //calculate dwfh, dwih, dwch, dwoh
@@ -427,19 +436,19 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
             B[i + 2 * time_step] = B[i]; 
             B[i + 3 * time_step] = B[i]; 
         } 
-        C[i] = dwfh_allt + i * hh;
-        C[i + time_step] = dwih_allt + i * hh; 
-        C[i + 2 * time_step] = dwch_allt + i * hh; 
-        C[i + 3 * time_step] = dwoh_allt + i * hh; 
+        C[i] = x_temp + i * hh;
+        C[i + time_step] = x_temp + (i + time_step) * hh; 
+        C[i + 2 * time_step] = x_temp + (i + 2 * time_step) * hh; 
+        C[i + 3 * time_step] = x_temp + (i + 3 * time_step) * hh; 
     } 
     cblas_sgemm_batch(CblasRowMajor, transA, transB, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, 1, size_per_grp);
     for(i = 0; i < hid * hid; i++) {
         for(j = 0; j < time_step; j++) {
             int index = j * hid * hid + i;
-            dwfh[i] += dwfh_allt[index];
-            dwih[i] += dwih_allt[index];
-            dwch[i] += dwch_allt[index];
-            dwoh[i] += dwoh_allt[index];
+            dwfh[i] += C[j][i];
+            dwih[i] += C[j + time_step][i];
+            dwch[i] += C[j + 2 * time_step][i];
+            dwoh[i] += C[j + 3 * time_step][i];
             //printf("time_step=%d\n", j);
             //printf("dwfh_allt=%f\n", dwfh_allt[index]);
             //printf("dwih_allt=%f\n", dwih_allt[index]);
@@ -491,14 +500,6 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     mkl_free(dhhi); 
     mkl_free(dhhc); 
     mkl_free(dhho); 
-    mkl_free(dwfx_allt); 
-    mkl_free(dwix_allt); 
-    mkl_free(dwcx_allt); 
-    mkl_free(dwox_allt); 
-    mkl_free(dwfh_allt); 
-    mkl_free(dwih_allt);
-    mkl_free(dwch_allt);
-    mkl_free(dwoh_allt);
     mkl_free(dxf);
     mkl_free(dxi);
     mkl_free(dxc);
