@@ -252,11 +252,6 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     float *dhc = (float*)mkl_malloc(time_step * hid * batch_size * sizeof (float), 64); 
     float *dho = (float*)mkl_malloc(time_step * hid * batch_size * sizeof (float), 64); 
     
-    float *dhhf = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
-    float *dhhi = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
-    float *dhhc = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
-    float *dhho = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
-    
     float *dxf = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
     float *dxi = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
     float *dxc = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
@@ -284,14 +279,14 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     A[2] = w_h + 2 * hid * hid;//w_ch
     A[3] = w_h + 3 * hid * hid;//w_oh
     
-    C[0] = dhhf;
-    C[1] = dhhi;
-    C[2] = dhhc;
-    C[3] = dhho;
     size_t bh = batch_size * hid;
     size_t tbi = batch_size * input_dim * time_step;
     size_t ib = input_dim * batch_size;
     size_t hh = hid * hid;
+    C[0] = x_temp;
+    C[1] = x_temp + bh;
+    C[2] = x_temp + bh * 2;
+    C[3] = x_temp + bh * 3;
     for(i = time_step - 1; i >= 0; i--) {
         int kk = i * bh;
         for(j = 0; j < bh; j++ ) {
@@ -337,11 +332,7 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
         //calculate dbf, dbi, dbc, dbo
         for(j = 0; j < bh; j++ ) {
             int index = kk + j;
-            dh_next[j] = dhhf[j] + dhhi[j] + dhhc[j] + dhho[j];
-            //printf("dhhf=%f\n", dhhf[j]);
-            //printf("dhhi=%f\n", dhhi[j]);
-            //printf("dhhc=%f\n", dhhc[j]);
-            //printf("dhho=%f\n", dhho[j]);
+            dh_next[j] = C[0][j] + C[1][j] + C[2][j] + C[3][j];
             dc_next[j] = hf[index] * dc[j];
             //printf("dh_next[%d]=%f\n", j,dh_next[j]);
             //printf("dc_next[%d]=%f\n\n\n\n", j,dc_next[j]);
@@ -496,10 +487,6 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     mkl_free(dhi); 
     mkl_free(dhc); 
     mkl_free(dho); 
-    mkl_free(dhhf); 
-    mkl_free(dhhi); 
-    mkl_free(dhhc); 
-    mkl_free(dhho); 
     mkl_free(dxf);
     mkl_free(dxi);
     mkl_free(dxc);
