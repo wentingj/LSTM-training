@@ -238,9 +238,11 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     float *dh = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
     float *dc = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64);
     
-    int max_size = max(batch_size, input_dim);
-    max_size = max(max_size, hid);
-    float *x_temp = (float*)mkl_malloc(4 * time_step * hid * max_size * sizeof (float), 64); 
+    int max_size = max(4 * time_step * hid * batch_size, 4 * time_step * hid * input_dim);
+    max_size = max(max_size, 4 * time_step * hid * hid);
+    max_size = max(max_size, 4 * time_step * input_dim * batch_size);
+    printf("max_size=%d\n", max_size);
+    float *x_temp = (float*)mkl_malloc(max_size * sizeof (float), 64); 
     
     float *dh_next = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64); 
     float *dc_next = (float*)mkl_malloc(hid * batch_size * sizeof (float), 64);
@@ -252,10 +254,6 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     float *dhc = (float*)mkl_malloc(time_step * hid * batch_size * sizeof (float), 64); 
     float *dho = (float*)mkl_malloc(time_step * hid * batch_size * sizeof (float), 64); 
     
-    float *dxf = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
-    float *dxi = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
-    float *dxc = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
-    float *dxo = (float*)mkl_malloc(time_step * input_dim * batch_size * sizeof (float), 64);
     //cache: hf hi hc ho c, c=[c_0, all c_t]i
     //calculate all gf, gi, gc_wave, go
     // loop on step
@@ -470,14 +468,15 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
         B[i + 2 * time_step] = dhc + i * bh; 
         B[i + 3 * time_step] = dho + i * bh; 
     
-        C[i] = dxf + i * ib;
-        C[i + time_step] = dxi + i * ib; 
-        C[i + 2 * time_step] = dxc + i * ib; 
-        C[i + 3 * time_step] = dxo + i * ib; 
+        C[i] = x_temp + i * ib;
+        C[i + time_step] = x_temp + (i + time_step) * ib; 
+        C[i + 2 * time_step] = x_temp + (i + 2 * time_step)* ib; 
+        C[i + 3 * time_step] = x_temp + (i + 3 * time_step)* ib; 
     }
     cblas_sgemm_batch(CblasRowMajor, transA, transB, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc, 1, size_per_grp); 
     for(i = 0; i < tbi; i++) {
-        dx[i] = dxf[i] + dxi[i] + dxc[i] + dxo[i];
+        //dx[i] = dxf[i] + dxi[i] + dxc[i] + dxo[i];
+        dx[i] = x_temp[i] + x_temp[i + tbi] + x_temp[i + 2 * tbi] + x_temp[i + 3 * tbi];
     }
     mkl_free(dh); 
     mkl_free(dc); 
@@ -487,10 +486,6 @@ void  LSTM_backward(int batch_size, int time_step, int input_dim, int hid,
     mkl_free(dhi); 
     mkl_free(dhc); 
     mkl_free(dho); 
-    mkl_free(dxf);
-    mkl_free(dxi);
-    mkl_free(dxc);
-    mkl_free(dxo);
     mkl_free(A);
     mkl_free(B);
     mkl_free(C);
